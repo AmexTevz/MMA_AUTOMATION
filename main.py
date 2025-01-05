@@ -1,5 +1,5 @@
 try:
-    from config import USERNAME, PASSWORD, APP_PATH
+    from credentials import USERNAME, PASSWORD, APP_PATH
 except ImportError:
     print("Please create a config.py file with your credentials. See config.example.py for reference.")
     raise
@@ -7,6 +7,8 @@ from pywinauto.application import Application
 import time
 import os
 import random
+import csv
+from datetime import datetime
 
 
 class MenuManagementAutomation:
@@ -16,6 +18,8 @@ class MenuManagementAutomation:
         self.appref_path = APP_PATH
         self.username = USERNAME
         self.password = PASSWORD
+        self.log_file = f"menu_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
 
     def login(self):
         try:
@@ -33,7 +37,6 @@ class MenuManagementAutomation:
         try:
             checkbox = self.main_window.child_window(title=name, control_type="CheckBox")
             if checkbox.exists():
-                print(f"Found checkbox with title '{name}'")
                 return checkbox
 
             text_element = self.main_window.child_window(
@@ -123,8 +126,25 @@ class MenuManagementAutomation:
             print(f"Error in menu items search: {e}")
             return False
 
-    def process_random_item(self):
+    def log_change(self, property_id, rvc_id, item_id, action):
+        """Log changes to CSV file"""
+        try:
+            with open(self.log_file, 'a', newline='') as file:
+                writer = csv.writer(file)
+                if file.tell() == 0:
+                    writer.writerow(['Store', 'RVC', 'Item ID and Name', 'Action', 'Timestamp'])
+                writer.writerow([
+                    property_id,
+                    rvc_id,
+                    item_id,
+                    action,
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                ])
+            print(f"Change logged to {self.log_file}")
+        except Exception as e:
+            print(f"Error logging change: {e}")
 
+    def process_random_item(self, property_id, rvc_id):
         try:
             self.checkbox_operation('Modifiers', 0)
             self.checkbox_operation('IsActive', 1)
@@ -148,11 +168,16 @@ class MenuManagementAutomation:
 
                 print(f"\nChecking item {item_id}...")
                 selected_item.click_input()
-                if (self.checkbox_operation("Out-of-stock",0, check_only=True) and
-                        self.checkbox_operation("Item disabled", 0,check_only=True) and
-                        self.checkbox_operation("Not available on any levels", 0,check_only=True)):
-                    self.checkbox_operation("Active", 0)
-                print("deactivated")
+                if (self.checkbox_operation("Out-of-stock", 0, check_only=True) and
+                        self.checkbox_operation("Item disabled", 0, check_only=True) and
+                        self.checkbox_operation("Not available on any levels", 0, check_only=True)):
+                    if self.checkbox_operation("Active", 0):
+                        print(f"Successfully deactivated {item_id}")
+                        self.log_change(property_id, rvc_id, item_id,"Deactivated")
+                        return True
+
+            print("No suitable items found to deactivate")
+            return False
 
         except Exception as e:
             print(f"Error in process_random_item: {e}")
@@ -171,7 +196,10 @@ class MenuManagementAutomation:
                 if self.search_and_select(property_id, rvc_id):
                     time.sleep(2)  # Wait for menu items to load
                     if self.search_menu_items("burger"):
-                        self.process_random_item()
+                        if self.process_random_item(property_id, rvc_id):
+                            print("Successfully processed one item")
+                        else:
+                            print("No items were processed")
         except Exception as e:
             print(f"Error in run: {e}")
 
@@ -183,4 +211,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
