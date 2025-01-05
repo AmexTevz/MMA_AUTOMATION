@@ -9,7 +9,14 @@ import os
 import random
 import csv
 from datetime import datetime
+from PIL import ImageGrab
+import win32gui
 
+WAIT_TIME_LOGIN = 3
+WAIT_TIME_LOAD = 2
+SEARCH_FILTER_WAIT = 1
+CPU_USAGE_THRESHOLD = 20
+CPU_USAGE_TIMEOUT = 10
 
 class MenuManagementAutomation:
     def __init__(self):
@@ -19,6 +26,10 @@ class MenuManagementAutomation:
         self.username = USERNAME
         self.password = PASSWORD
         self.log_file = f"menu_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        self._checkbox_cache = {}
+        self.screenshot_dir = "screenshots"
+        if not os.path.exists(self.screenshot_dir):
+            os.makedirs(self.screenshot_dir)
 
 
     def login(self):
@@ -27,16 +38,25 @@ class MenuManagementAutomation:
             self.main_window.Edit0.set_text(self.username)
             self.main_window.Edit2.set_text(self.password)
             self.main_window.Button4.click()
-            time.sleep(3)
-            return True
+            time.sleep(WAIT_TIME_LOGIN)
+            if self.main_window.exists():
+                return True
+            return False
         except Exception as e:
             print(f"Error during login: {e}")
             return False
 
     def find_checkbox(self, name):
+        if name in self._checkbox_cache:
+            if self._checkbox_cache[name].exists():
+                return self._checkbox_cache[name]
+            else:
+                del self._checkbox_cache[name]
+                
         try:
             checkbox = self.main_window.child_window(title=name, control_type="CheckBox")
             if checkbox.exists():
+                self._checkbox_cache[name] = checkbox
                 return checkbox
 
             text_element = self.main_window.child_window(
@@ -148,33 +168,40 @@ class MenuManagementAutomation:
         try:
             self.checkbox_operation('Modifiers', 0)
             self.checkbox_operation('IsActive', 1)
-            menu_items = self.main_window.child_window(
+            
+            # Get menu items once and cache them
+            menu_items_container = self.main_window.child_window(
                 title="MenuManagement.Data.Models.MenuItem",
                 control_type="ListItem",
                 found_index=0
-            ).parent().children(control_type="ListItem")
-
-            menu_items = list(menu_items)
-            checked_items = set()
-
-            while checked_items != set(range(len(menu_items))):
-                available_indices = set(range(len(menu_items))) - checked_items
-                random_index = random.choice(list(available_indices))
-                checked_items.add(random_index)
-
-                selected_item = menu_items[random_index]
+            ).parent()
+            
+            menu_items = list(menu_items_container.children(control_type="ListItem"))
+            if not menu_items:
+                print("No menu items found")
+                return False
+                
+            # Shuffle the list instead of using random selection
+            random.shuffle(menu_items)
+            
+            for selected_item in menu_items:
                 item_texts = [t.window_text() for t in selected_item.children(control_type="Text") if t.window_text()]
                 item_id = item_texts[0] if item_texts else "Unknown"
 
                 print(f"\nChecking item {item_id}...")
                 selected_item.click_input()
-                if (self.checkbox_operation("Out-of-stock", 0, check_only=True) and
-                        self.checkbox_operation("Item disabled", 0, check_only=True) and
-                        self.checkbox_operation("Not available on any levels", 0, check_only=True)):
-                    if self.checkbox_operation("Active", 0):
-                        print(f"Successfully deactivated {item_id}")
-                        self.log_change(property_id, rvc_id, item_id,"Deactivated")
-                        return True
+                
+                # Combine all checkbox checks into one condition
+                all_conditions_met = all([
+                    self.checkbox_operation("Out-of-stock", 0, check_only=True),
+                    self.checkbox_operation("Item disabled", 0, check_only=True),
+                    self.checkbox_operation("Not available on any levels", 0, check_only=True)
+                ])
+                
+                if all_conditions_met and self.checkbox_operation("Active", 0):
+                    print(f"Successfully deactivated {item_id}")
+                    self.log_change(property_id, rvc_id, item_id, "Deactivated")
+                    return True
 
             print("No suitable items found to deactivate")
             return False
@@ -203,10 +230,47 @@ class MenuManagementAutomation:
         except Exception as e:
             print(f"Error in run: {e}")
 
+    def take_screenshot(self, reason="exit"):
+        """Take a screenshot of the current window"""
+        try:
+            if self.main_window and self.main_window.exists():
+                # Get the window handle
+                hwnd = self.main_window.handle
+                
+                # Get window coordinates
+                window_rect = win32gui.GetWindowRect(hwnd)
+                
+                # Capture the specific region
+                screenshot = ImageGrab.grab(window_rect)
+                
+                # Save the screenshot
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = os.path.join(self.screenshot_dir, f"screenshot_{reason}_{timestamp}.png")
+                screenshot.save(filename)
+                print(f"Screenshot saved: {filename}")
+        except Exception as e:
+            print(f"Error taking screenshot: {e}")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if exc_type:  # If there was an error
+                self.take_screenshot("error")
+            else:
+                self.take_screenshot("normal_exit")
+        finally:
+            if self.app:
+                try:
+                    self.app.kill()
+                except Exception as e:
+                    print(f"Error closing application: {e}")
+
 
 def main():
-    automation = MenuManagementAutomation()
-    automation.run(33, 810)
+    with MenuManagementAutomation() as automation:
+        automation.run(33, 810)
 
 
 if __name__ == "__main__":
