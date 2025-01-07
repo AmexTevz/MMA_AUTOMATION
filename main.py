@@ -1,7 +1,10 @@
 try:
-    from credentials import USERNAME, PASSWORD, APP_PATH
-except ImportError:
-    print("Please create a config.py file with your credentials. See config.example.py for reference.")
+    from config import config
+    # Validate credentials before proceeding
+    config.validate()
+except (ImportError, ValueError) as e:
+    print(f"Configuration error: {e}")
+    print("Please create a .env file with your credentials. See .env.example for reference.")
     raise
 from pywinauto.application import Application
 import time
@@ -22,9 +25,9 @@ class MenuManagementAutomation:
     def __init__(self):
         self.app = None
         self.main_window = None
-        self.appref_path = APP_PATH
-        self.username = USERNAME
-        self.password = PASSWORD
+        self.appref_path = config.app_path
+        self.username = config.username
+        self.password = config.password
         self.log_file = f"menu_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self._checkbox_cache = {}
         self.screenshot_dir = "screenshots"
