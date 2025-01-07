@@ -1,5 +1,15 @@
+from config import config
+import os
+from dotenv import load_dotenv
+import json
+import time
+from datetime import datetime
+load_dotenv()
+username = os.getenv('USERNAME')
+password = os.getenv('PASSWORD')
+app_path = os.getenv('APP_PATH')
+
 try:
-    from config import config
     # Validate credentials before proceeding
     config.validate()
 except (ImportError, ValueError) as e:
@@ -7,11 +17,8 @@ except (ImportError, ValueError) as e:
     print("Please create a .env file with your credentials. See .env.example for reference.")
     raise
 from pywinauto.application import Application
-import time
-import os
 import random
 import csv
-from datetime import datetime
 from PIL import ImageGrab
 import win32gui
 
@@ -21,12 +28,14 @@ SEARCH_FILTER_WAIT = 1
 CPU_USAGE_THRESHOLD = 20
 CPU_USAGE_TIMEOUT = 10
 
+
 class MenuManagementAutomation:
     def __init__(self):
         self.app = None
         self.main_window = None
         self.appref_path = config.app_path
-        self.username = config.username
+        self.domain = config.domain
+        self.user = config.user
         self.password = config.password
         self.log_file = f"menu_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self._checkbox_cache = {}
@@ -34,12 +43,19 @@ class MenuManagementAutomation:
         if not os.path.exists(self.screenshot_dir):
             os.makedirs(self.screenshot_dir)
 
-
     def login(self):
         try:
             print("\nAttempting to login...")
-            self.main_window.Edit0.set_text(self.username)
-            self.main_window.Edit2.set_text(self.password)
+            # Construct the domain\user format
+            login_text = f"{self.domain}\\{self.user}"
+            print(f"Attempting to login with: {login_text}")
+
+            # Set the login credentials
+            self.main_window.Edit0.set_text(login_text)
+            actual_text = self.main_window.Edit0.get_value()
+            print(f"Actual text in login field: {actual_text}")
+
+            self.main_window.Edit2.set_text(self.password.replace("'", "").strip())
             self.main_window.Button4.click()
             time.sleep(WAIT_TIME_LOGIN)
             if self.main_window.exists():
@@ -55,7 +71,7 @@ class MenuManagementAutomation:
                 return self._checkbox_cache[name]
             else:
                 del self._checkbox_cache[name]
-                
+
         try:
             checkbox = self.main_window.child_window(title=name, control_type="CheckBox")
             if checkbox.exists():
@@ -171,36 +187,36 @@ class MenuManagementAutomation:
         try:
             self.checkbox_operation('Modifiers', 0)
             self.checkbox_operation('IsActive', 1)
-            
+
             # Get menu items once and cache them
             menu_items_container = self.main_window.child_window(
                 title="MenuManagement.Data.Models.MenuItem",
                 control_type="ListItem",
                 found_index=0
             ).parent()
-            
+
             menu_items = list(menu_items_container.children(control_type="ListItem"))
             if not menu_items:
                 print("No menu items found")
                 return False
-                
+
             # Shuffle the list instead of using random selection
             random.shuffle(menu_items)
-            
+
             for selected_item in menu_items:
                 item_texts = [t.window_text() for t in selected_item.children(control_type="Text") if t.window_text()]
                 item_id = item_texts[0] if item_texts else "Unknown"
 
                 print(f"\nChecking item {item_id}...")
                 selected_item.click_input()
-                
+
                 # Combine all checkbox checks into one condition
                 all_conditions_met = all([
                     self.checkbox_operation("Out-of-stock", 0, check_only=True),
                     self.checkbox_operation("Item disabled", 0, check_only=True),
                     self.checkbox_operation("Not available on any levels", 0, check_only=True)
                 ])
-                
+
                 if all_conditions_met and self.checkbox_operation("Active", 0):
                     print(f"Successfully deactivated {item_id}")
                     self.log_change(property_id, rvc_id, item_id, "Deactivated")
@@ -239,13 +255,13 @@ class MenuManagementAutomation:
             if self.main_window and self.main_window.exists():
                 # Get the window handle
                 hwnd = self.main_window.handle
-                
+
                 # Get window coordinates
                 window_rect = win32gui.GetWindowRect(hwnd)
-                
+
                 # Capture the specific region
                 screenshot = ImageGrab.grab(window_rect)
-                
+
                 # Save the screenshot
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 filename = os.path.join(self.screenshot_dir, f"screenshot_{reason}_{timestamp}.png")
@@ -271,9 +287,31 @@ class MenuManagementAutomation:
                     print(f"Error closing application: {e}")
 
 
+def load_tasks():
+    with open('tasks.json', 'r') as file:
+        return json.load(file)['tasks']
+
+def process_task(task, automation):
+    stores = task['stores']
+    filter_term = task['filter']
+    action = task['action']
+    
+    # Assuming stores array contains pairs of numbers [property_id, rvc_id]
+    for i in range(0, len(stores), 2):
+        property_id = stores[i]
+        rvc_id = stores[i + 1] if i + 1 < len(stores) else ""
+        
+        try:
+            print(f"\nProcessing store {property_id} {rvc_id} with filter '{filter_term}' - Action: {action}")
+            automation.run(property_id, rvc_id)
+        except Exception as e:
+            print(f"Error processing store {property_id} {rvc_id}: {e}")
+
 def main():
+    tasks = load_tasks()
     with MenuManagementAutomation() as automation:
-        automation.run(33, 810)
+        for task in tasks:
+            process_task(task, automation)
 
 
 if __name__ == "__main__":

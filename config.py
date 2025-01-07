@@ -10,25 +10,29 @@ class Config:
         load_dotenv(dotenv_path=env_path)
 
         # Get credentials with fallbacks to None
-        self.username = os.getenv('USERNAME')
+        self.domain = os.getenv('DOMAIN')
+        self.user = os.getenv('USER')
         self.password = os.getenv('PASSWORD')
         self.app_path = os.getenv('APP_PATH')
 
     def validate(self):
         """Validate that all required credentials are present"""
         missing = []
-        if not self.username:
-            missing.append('USERNAME')
+        if not self.domain:
+            missing.append('DOMAIN')
+        if not self.user:
+            missing.append('USER')
         if not self.password:
             missing.append('PASSWORD')
         if not self.app_path:
             missing.append('APP_PATH')
-        
+
         if missing:
             raise ValueError(
                 f"Missing required environment variables: {', '.join(missing)}. "
                 "Please check your .env file."
             )
+
 
 # Create a singleton instance
 config = Config() 
