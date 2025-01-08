@@ -1,38 +1,24 @@
-import os
 from dotenv import load_dotenv
-from pathlib import Path
-
+import os
 
 class Config:
-    def __init__(self):
-        # Load environment variables from .env file
-        env_path = Path('.') / '.env'
-        load_dotenv(dotenv_path=env_path)
-
-        # Get credentials with fallbacks to None
-        self.domain = os.getenv('DOMAIN')
-        self.user = os.getenv('USER')
-        self.password = os.getenv('PASSWORD')
-        self.app_path = os.getenv('APP_PATH')
-
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            # Initialize the singleton instance
+            load_dotenv()
+            cls._instance.app_path = os.getenv('APP_PATH')
+            cls._instance.domain = os.getenv('DOMAIN')
+            cls._instance.user = os.getenv('USER')
+            cls._instance.password = os.getenv('PASSWORD')
+        return cls._instance
+    
     def validate(self):
-        """Validate that all required credentials are present"""
-        missing = []
-        if not self.domain:
-            missing.append('DOMAIN')
-        if not self.user:
-            missing.append('USER')
-        if not self.password:
-            missing.append('PASSWORD')
-        if not self.app_path:
-            missing.append('APP_PATH')
-
+        required = ['app_path', 'domain', 'user', 'password']
+        missing = [attr for attr in required if not getattr(self, attr)]
         if missing:
-            raise ValueError(
-                f"Missing required environment variables: {', '.join(missing)}. "
-                "Please check your .env file."
-            )
+            raise ValueError(f"Missing required configuration: {', '.join(missing)}")
 
-
-# Create a singleton instance
 config = Config() 

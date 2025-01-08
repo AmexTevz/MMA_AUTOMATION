@@ -19,29 +19,19 @@ except (ImportError, ValueError) as e:
     print("Please create a .env file with your credentials. See .env.example for reference.")
     raise
 
-load_dotenv()
-username = os.getenv('USERNAME')
-password = os.getenv('PASSWORD')
-app_path = os.getenv('APP_PATH')
-
-
-
 class MenuManagementAutomation:
     def __init__(self):
         self.app = None
         self.main_window = None
-        self.appref_path = config.app_path
+        self.app_path = config.app_path
         self.domain = config.domain
         self.user = config.user
         self.password = config.password
         self._checkbox_cache = {}
         self.data_dir = "data"
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-
         self.screenshot_dir = os.path.join(self.data_dir, "screenshots")
-        if not os.path.exists(self.screenshot_dir):
-            os.makedirs(self.screenshot_dir)
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.screenshot_dir, exist_ok=True)
 
     def login(self):
         try:
@@ -207,13 +197,7 @@ class MenuManagementAutomation:
                 print(f"\nChecking item {item_id}...")
                 selected_item.click_input()
 
-                all_conditions_met = all([
-                    self.checkbox_operation("Out-of-stock", 0, check_only=True),
-                    self.checkbox_operation("Item disabled", 0, check_only=True),
-                    self.checkbox_operation("Not available on any levels", 0, check_only=True)
-                ])
-
-                if all_conditions_met and self.checkbox_operation("Active", 0):
+                if self.check_item_conditions() and self.checkbox_operation("Active", 0):
                     print(f"Successfully deactivated {item_id}")
                     self.log_change(property_id, rvc_id, item_id, "Deactivated", run_id)
                     return True
@@ -228,7 +212,7 @@ class MenuManagementAutomation:
     def run(self, property_id=None, rvc_id=None):
         try:
             print("Launching application...")
-            os.startfile(self.appref_path)
+            os.startfile(self.app_path)
             time.sleep(3)
 
             self.app = Application(backend="uia").connect(title_re=".*Menu Management QA.*")
@@ -368,6 +352,13 @@ class MenuManagementAutomation:
             print(f"Error removing categories: {e}")
             return False
 
+    def check_item_conditions(self):
+        return all([
+            self.checkbox_operation("Out-of-stock", 0, check_only=True),
+            self.checkbox_operation("Item disabled", 0, check_only=True),
+            self.checkbox_operation("Not available on any levels", 0, check_only=True)
+        ])
+
 
 def load_tasks():
     with open('tasks.json', 'r') as file:
@@ -473,13 +464,7 @@ def process_task(task, automation):
                             item.click_input()
                             time.sleep(1)
 
-                            all_conditions_met = all([
-                                automation.checkbox_operation("Out-of-stock", 0, check_only=True),
-                                automation.checkbox_operation("Item disabled", 0, check_only=True),
-                                automation.checkbox_operation("Not available on any levels", 0, check_only=True)
-                            ])
-
-                            if all_conditions_met:
+                            if automation.check_item_conditions():
                                 if automation.remove_from_all_categories(property_id, rvc_id, run_id):
                                     found_item_with_categories = True
                                     time.sleep(0.5)
