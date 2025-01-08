@@ -1,6 +1,5 @@
 from config import config
 import os
-from dotenv import load_dotenv
 import json
 import time
 from datetime import datetime
@@ -14,8 +13,8 @@ from ctypes import windll
 from PIL import Image
 try:
     config.validate()
-except (ImportError, ValueError) as e:
-    print(f"Configuration error: {e}")
+except (ImportError, ValueError) as err:
+    print(f"Configuration error: {err}")
     print("Please create a .env file with your credentials. See .env.example for reference.")
     raise
 
@@ -28,6 +27,7 @@ class MenuManagementAutomation:
         self.user = config.user
         self.password = config.password
         self._checkbox_cache = {}
+        self.current_run_id = None
         self.data_dir = "data"
         self.screenshot_dir = os.path.join(self.data_dir, "screenshots")
         os.makedirs(self.data_dir, exist_ok=True)
@@ -119,13 +119,13 @@ class MenuManagementAutomation:
             if search_box.exists():
                 print(f"Typing {property_id} {rvc_id} to filter...")
                 search_box.set_text(f'{property_id} {rvc_id}')
-                time.sleep(1)  # Wait for filter
+                time.sleep(1)
 
-                dataitem = self.main_window.child_window(
+                data_item = self.main_window.child_window(
                     title="MenuManagement.Data.Models.RevenueCenter",
                     control_type="DataItem"
                 )
-                dataitem.double_click_input()
+                data_item.double_click_input()
                 return True
         except Exception as e:
             print(f"Error in search and select: {e}")
@@ -149,26 +149,40 @@ class MenuManagementAutomation:
 
     @staticmethod
     def log_change(property_id, rvc_id, item_id, action, run_id, categories=None):
-        """Log changes to CSV file"""
         try:
             data_dir = "data"
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir)
 
             csv_path = os.path.join(data_dir, 'change_history.csv')
+            headers = ['Run ID', 'Store', 'RVC', 'Item ID and Name', 'Action', 'Timestamp']
 
-            with open(csv_path, 'a', newline='') as file:
+            needs_header = True
+            if os.path.exists(csv_path):
+                try:
+                    with open(csv_path, 'r') as file:
+                        first_line = file.readline().strip()
+                        if first_line and first_line.split(',') == headers:
+                            needs_header = False
+                except:
+                    pass
+
+            if categories and action == "Removed from categories":
+                action = f"Removed from categories - {','.join(categories)}"
+                
+            mode = 'w' if needs_header else 'a'
+            with open(csv_path, mode, newline='') as file:
                 writer = csv.writer(file)
-                if file.tell() == 0:
-                    writer.writerow(['Run ID', 'Store', 'RVC', 'Item ID and Name', 'Action', 'Categories', 'Timestamp'])
-                categories_str = ','.join(categories) if categories else ''
+                
+                if needs_header:
+                    writer.writerow(headers)
+                
                 writer.writerow([
                     run_id,
                     property_id,
                     rvc_id,
                     item_id,
                     action,
-                    categories_str,
                     datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 ])
             print(f"Change logged to {csv_path}")
@@ -248,21 +262,20 @@ class MenuManagementAutomation:
                 saveBitMap.CreateCompatibleBitmap(mfcDC, width, height)
                 saveDC.SelectObject(saveBitMap)
 
-                # Take the screenshot by copying the window content
                 result = windll.user32.PrintWindow(hwnd, saveDC.GetSafeHdc(), 0)
 
-                bmpinfo = saveBitMap.GetInfo()
-                bmpstr = saveBitMap.GetBitmapBits(True)
+                bmp_info = saveBitMap.GetInfo()
+                bmp_str = saveBitMap.GetBitmapBits(True)
                 im = Image.frombuffer(
                     'RGB',
-                    (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
-                    bmpstr, 'raw', 'BGRX', 0, 1)
+                    (bmp_info['bmWidth'], bmp_info['bmHeight']),
+                    bmp_str, 'raw', 'BGRX', 0, 1)
 
-                # Save the screenshot
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = os.path.join(self.screenshot_dir, f"screenshot_{reason}_{timestamp}.png")
+                filename = os.path.join(self.screenshot_dir, f"{self.current_run_id}_{reason}_{timestamp}.png")
                 im.save(filename)
                 print(f"Screenshot saved: {filename}")
+                
                 win32gui.DeleteObject(saveBitMap.GetHandle())
                 saveDC.DeleteDC()
                 mfcDC.DeleteDC()
@@ -298,11 +311,13 @@ class MenuManagementAutomation:
         except Exception as e:
             print(f"Error clearing search: {e}")
             return False
-
-    def add_to_category(self, category_name):
-        # To be implemented
+######################################################################
+    def add_to_category(self, store_id, item_id, category_name):
         pass
 
+    def activate(self, store_id, item_id):
+        pass
+######################################################################
     def remove_from_all_categories(self, property_id, rvc_id, run_id):
         try:
             menu_items_container = self.main_window.child_window(
@@ -321,7 +336,6 @@ class MenuManagementAutomation:
             item_texts = [t.window_text() for t in selected_item.children(control_type="Text") if t.window_text()]
             item_id = item_texts[0] if item_texts else "Unknown"
 
-            # Find and remove categories
             category_items = self.main_window.descendants(
                 title="MenuManagement.Data.Models.Category",
                 control_type="DataItem"
@@ -364,7 +378,6 @@ def load_tasks():
     with open('tasks.json', 'r') as file:
         data = json.load(file)
         store = data['store']
-        # Filter out disabled tasks and add store to each task
         return [{'store': store, **task} for task in data['tasks']
                 if not task.get('disabled', False)]
 
@@ -435,6 +448,7 @@ def process_task(task, automation):
     if mode == 'execute':
         property_id = store[0]
         rvc_id = store[1] if len(store) > 1 else ""
+        automation.current_run_id = run_id
         automation.run(property_id, rvc_id)
 
         automation.checkbox_operation('Modifiers', 0)
@@ -455,7 +469,7 @@ def process_task(task, automation):
                 if menu_items:
                     if operation['action'] == 'deactivate':
                         if automation.process_random_item(property_id, rvc_id, run_id):
-                            time.sleep(0.5)  # Brief delay before screenshot
+                            time.sleep(0.5)
                             automation.take_screenshot("deactivated")
                     elif operation['action'] == 'remove_categories':
                         random.shuffle(menu_items)
@@ -478,13 +492,15 @@ def process_task(task, automation):
 
                 automation.clear_search()
 
+        print("\n")
+
     else:
         property_id = store[0]
         rvc_id = store[1] if len(store) > 1 else ""
 
         if not automation.run(property_id, rvc_id):
             print(f"Failed to run automation for store {property_id} {rvc_id}")
-            return  # Exit if initial run fails
+            return
 
         store_changes = [c for c in history if c['Store'] == property_id]
         for change in reversed(store_changes):
@@ -521,6 +537,12 @@ def main():
     run_id = datetime.now().strftime('%H%M%S')
     print(f"Run ID: {run_id}")
 
+    csv_path = os.path.join("data", 'change_history.csv')
+    if not os.path.exists(csv_path):
+        os.makedirs("data", exist_ok=True)
+        with open(csv_path, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['Run ID', 'Store', 'RVC', 'Item ID and Name', 'Action', 'Timestamp'])
 
     combined_task = {
         'store': tasks[0]['store'],
