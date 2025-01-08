@@ -1,0 +1,27 @@
+{
+  "store": ["33", "810"],
+  "tasks": [
+    {
+      "disabled": false,
+      "operations": [
+        {
+          "type": "item_status",
+          "search": "burger",
+          "action": "deactivate",
+          "revert": "activate"
+        }
+      ]
+    },
+    {
+      "disabled": false,
+      "operations": [
+        {
+          "type": "item_status",
+          "search": "salad",
+          "action": "remove_categories",
+          "revert": "restore_categories"
+        }
+      ]
+    }
+  ]
+}
