@@ -348,27 +348,21 @@ class MenuManagementAutomation:
 
                 menu_items = list(menu_items_container.children(control_type="ListItem"))
                 if menu_items:
-                    for item in menu_items:
-                        item_texts = [t.window_text() for t in item.children(control_type="Text") if t.window_text()]
-                        current_item_id = item_texts[0] if item_texts else "Unknown"
-                        
-                        if current_item_id == search_id:  # Compare with just the ID part
-                            item.click_input()
-                            time.sleep(1)
-                            
-                            # Check if item is still deactivated
-                            if not self.checkbox_operation("Active", 1, check_only=True):
-                                if self.checkbox_operation("Active", 1):
-                                    print(f"Successfully reactivated {item_id}")
-                                    time.sleep(0.5)
-                                    self.take_screenshot("reactivated")
-                                    return True
-                            else:
-                                print(f"Item {item_id} is already active")
-                                return False
+                    # Click the first item since search should have found the right one
+                    menu_items[0].click_input()
+                    time.sleep(1)
+                    
+                    # Check if item is still deactivated
+                    if not self.checkbox_operation("Active", 1, check_only=True):
+                        if self.checkbox_operation("Active", 1):
+                            print(f"Successfully reactivated {item_id}")
+                            return True
+                    else:
+                        print(f"Item {item_id} is already active")
+                        return False
                 
-                    print(f"Item {item_id} not found")
-                    return False
+                print("No menu items found in list")
+                return False
         except Exception as e:
             print(f"Error in activate: {e}")
             return False
@@ -376,7 +370,8 @@ class MenuManagementAutomation:
     def add_to_categories(self, store_id, item_id, categories):
         """Add item back to its categories"""
         try:
-            if self.search_menu_items(item_id):
+            search_id = item_id.split('\t')[0]
+            if self.search_menu_items(search_id):
                 menu_items_container = self.main_window.child_window(
                     title="MenuManagement.Data.Models.MenuItem",
                     control_type="ListItem",
@@ -385,45 +380,39 @@ class MenuManagementAutomation:
 
                 menu_items = list(menu_items_container.children(control_type="ListItem"))
                 if menu_items:
-                    for item in menu_items:
-                        item_texts = [t.window_text() for t in item.children(control_type="Text") if t.window_text()]
-                        current_item_id = item_texts[0] if item_texts else "Unknown"
-                        
-                        if current_item_id == item_id:
-                            item.click_input()
-                            time.sleep(1)
-                            
-                            # Find and check categories
-                            category_items = self.main_window.descendants(
-                                title="MenuManagement.Data.Models.Category",
-                                control_type="DataItem"
-                            )
-                            
-                            added_categories = []
-                            for category in category_items:
-                                text_elements = category.descendants(control_type="Text")
-                                if text_elements:
-                                    category_name = text_elements[0].window_text()
-                                    if category_name in categories:
-                                        checkboxes = category.descendants(control_type="CheckBox")
-                                        if checkboxes:
-                                            checkbox = checkboxes[0]
-                                            if checkbox.get_toggle_state() == 0:
-                                                checkbox.toggle()
-                                                added_categories.append(category_name)
-                                                print(f"Added back to category: {category_name}")
-                            
-                            if added_categories:
-                                print(f"Successfully added back to categories: {', '.join(added_categories)}")
-                                time.sleep(0.5)
-                                self.take_screenshot("categories_restored")
-                                return True
-                            
-                            print("No categories were added")
-                            return False
-                
-                    print(f"Item {item_id} not found")
+                    # Click the first item since search should have found the right one
+                    menu_items[0].click_input()
+                    time.sleep(1)
+                    
+                    # Find and check categories
+                    category_items = self.main_window.descendants(
+                        title="MenuManagement.Data.Models.Category",
+                        control_type="DataItem"
+                    )
+                    
+                    added_categories = []
+                    for category in category_items:
+                        text_elements = category.descendants(control_type="Text")
+                        if text_elements:
+                            category_name = text_elements[0].window_text()
+                            if category_name in categories:
+                                checkboxes = category.descendants(control_type="CheckBox")
+                                if checkboxes:
+                                    checkbox = checkboxes[0]
+                                    if checkbox.get_toggle_state() == 0:
+                                        checkbox.toggle()
+                                        added_categories.append(category_name)
+                                        print(f"Added back to category: {category_name}")
+                    
+                    if added_categories:
+                        print(f"Successfully added back to categories: {', '.join(added_categories)}")
+                        return True
+                    
+                    print("No categories were added")
                     return False
+                
+                print("No menu items found in list")
+                return False
         except Exception as e:
             print(f"Error in add_to_categories: {e}")
             return False
@@ -585,7 +574,8 @@ def process_task(task, automation):
                 if menu_items:
                     if operation['action'] == 'deactivate':
                         if automation.process_random_item(property_id, rvc_id, run_id):
-                            time.sleep(0.5)
+                            automation.save_menu_item()
+                            time.sleep(1)
                             automation.take_screenshot("deactivated")
                     elif operation['action'] == 'remove_categories':
                         random.shuffle(menu_items)
@@ -597,7 +587,8 @@ def process_task(task, automation):
                             if automation.check_item_conditions():
                                 if automation.remove_from_all_categories(property_id, rvc_id, run_id):
                                     found_item_with_categories = True
-                                    time.sleep(0.5)
+                                    automation.save_menu_item()
+                                    time.sleep(1)
                                     automation.take_screenshot("removed_categories")
                                     break
                                 else:
@@ -629,15 +620,16 @@ def process_task(task, automation):
             
             if change['Action'] == 'Deactivated':
                 if automation.activate(property_id, item_id):
-                    print(f"Successfully reverted deactivation for {item_id}")
-                    time.sleep(0.5)
+                    automation.save_menu_item()
+                    time.sleep(1)
                     automation.take_screenshot("reactivated")
             elif change['Action'].startswith('Removed from categories'):
                 categories_str = change['Action'].split(' - ')[1]
                 categories = categories_str.split(',')
                 if automation.add_to_categories(property_id, item_id, categories):
-                    print(f"Successfully restored categories for {item_id}")
-                    time.sleep(0.5)
+                    print("Saving changes and taking screenshot...")
+                    automation.save_menu_item()
+                    time.sleep(1)  # Wait after save
                     automation.take_screenshot("categories_restored")
             
             automation.clear_search()
